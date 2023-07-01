@@ -1,0 +1,169 @@
+---
+title: 'TP final: Statistiques biomédicales'
+output:
+  html_document:
+    code_folding: show
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+**Important:** Ceci est un document R notebook. En cliquant sur knit vous aurez le choix entre un document html, pdf ou word. Le TP doit être rendu sous la forme d'un fichier NOM_prenom.html. Il est à remettre dans moodle.
+CTRL+Alt+i permet d'ouvrir une cellule de code compilable.
+
+
+**Description:** La première partie *Interruption d'essai clinique* et la seconde partie *Bayes UCB* nécessite de savoir coder en `R` à partir de fonctions basiques, tandis que la seconde partie *Cytomegalovirus et transplantation de cellules souches* demande d'analyser des résultats renvoyés par des fonctions évoluées. 
+
+**Consignes:** Tous les documents sont autorisés, y compris l'accès à internet. Il est en revanche formellement interdit de communiquer avec quiconque par mail, sms ou autres ... Lisez l'intégralité du sujet dès le début, afin de mieux gérer votre temps.
+
+# Interruption d'essai clinique
+Dans cette partie le contexte est spéculatif. Il s'agit d'explorer une méthode d'arrêt précoce d'un essai clinique lorsque le traitement ne semble pas marcher.
+
+On se situe dans le cadre d'un essai clinique visant à tester le taux de succès d'un nouveau traitement face au seuil de réussite d'un traitement déjà connu. Ce traitement standard marche dans 60\% des cas. L'essai clinique pour le nouveau traitement inclus jusqu'à 100 patients. Cependant, l'essai sera arrêté préventivement si on possède assez d'évidence que le nouveau traitement ne fonctionne pas mieux que le traitement standard.
+
+Pour gérer l'arrêt précoce, on se sert d'un modélisation bayésienne du paramètre de réussite du nouveau traitement, noté $p:$ 
+$p\sim \Pi$ où l'a priori $\Pi$ est une loi uniforme sur $[0,1]$, càd: $p\sim\mathcal{U}_{[0,1]}.$  Le résultat d'un patient traité avec le nouveau protocole suit une un loi de Bernoulli. On a: $$X\sim \mathcal{B}(p).$$
+Lorsque 5 patients au moins, on déjà été inclus à l'essai clinique, on se sert de la règle suivante: l'essai clinique est interrompu si l'a posteriori $\Pi_n$ porte plus de 95% de la probabilité sur l'intervalle $[0,0.6]:$ 
+$$\Pi_n([0,0.6])\geq 0.95.$$
+
+**1.**  La fonction `Trial` doit permettre de simuler un tel essai clinique. Il faut la compléter pour y inclure le test bayésien.
+```{r, eval=FALSE}
+# n=100, taille de l'échantillon
+# p, probabilité de succès du nouveau traitement
+# level, niveau de crédibilité du test: level=0.95
+Trial<-function(n,p,level){
+  x=rep(NA,n)
+  x_sum=rep(0,2)
+  Test=0
+  i=0
+  while(Test==0 && i<100){
+    i=i+1
+    x[i]=rbinom(1,1,p); x_sum[1]=x_sum[1]+x[i]; x_sum[2]=x_sum[2]+1-x[i]
+    ### Ligne à compléter: test bayésien pour changer la valeur de la variable Test
+    prior=punif(0.6,0,(x_sum[1]+x_sum[2])/x_sum[1])
+    if (prior>=level){Test=1}
+  }
+  Status="completed"; if(i<100){Status="early stop"}
+  hatp=x_sum[1]/(x_sum[1]+x_sum[2])
+  return(list(hatp=hatp, Nsample=i, Status=Status, x=x))
+}
+
+n=100; p=0.6;level=0.95
+Trial(n,p, level)
+
+```
+
+**2.** Effectuer une fonction permettant d'estimer par simulation de Monte Carlo la proportion d'arrêt précoce à tort lorsque le vrai paramètre $p$ de succés du nouveau traitement vaut 60\%, 65\% et 70\% ($p$ sera un paramètre de cette fonction). Donner explicitement les résultats pour ces trois valeurs.
+```{r,eval=FALSE}
+err = function(N, n, p, level){
+        x=rep(0,n)
+        x_sum=rep(0,2)
+        count = 0
+        for (i in 1:N){
+          x[i] = rbinom(1,1,p) ; x_sum[1]=x_sum[1]+x[i]; x_sum[2]=x_sum[2]+1-x[i]
+          prior=punif(0.6,0,(x_sum[1]+x_sum[2])/x_sum[1])
+          if (prior >= level){
+            count = count + 1
+            }
+          }
+        
+        return(count/N)
+}
+N=1000;n=100;level=0.95
+err(N,n,0.7,level)
+err(N,n,0.6,level)
+```
+
+
+# Bayes UCB
+
+On se situe dans le cadre d'un algorithme de bandit à deux bras (1 et 2) dont les gains respectifs suivent des lois de Bernoulli: $X_1\sim\mathcal{B}(p1)$ et $X_2\sim\mathcal{B}(p_2).$
+
+Compléter le code suivant afin de mettre en place l'algorithme Bayes UCB. Les paramètres $p1$ et $p2$ suivent des a priori uniforme ce qui nous place dans la classe des lois conjuguées Beta pour calculer leur a posteriori: $p_i\sim \mathcal{U}_{[0,1]},$ $i=$ 1 ou 2.
+La valeur du paramètre $c$ est à 0 dans l'algorithme suivant (comme proposé par son auteur).
+
+**Bayes UCB:** Le gain associé à chaque bras $k$ est associé à un a priori $\Pi_k$ (au sens bayésien).
+ Soit $q_{t,k}$ le quantile associé à chaque bras au temps $t$ défini par:
+ $$\Pi_{t,k}(]-\infty;q_{t,k})=1-\dfrac{1}{t\log(n)^c},$$ avec
+ $\Pi_{t,k},$ l'a posteriori  pour le bras $k$ au temps $t.$
+ 
+ On joue d'abord une fois chaque bras puis, au temps $t,$ l'algorithme choisi le bras: $$a_t=\underset{k\in\{1,\ldots,K\}}{\arg\max}q_{t,k}.$$
+
+Le but est de créer une fonction Bayes UCB qui mette en oeuvre cet algorithme. Compléter la cellule de code suivante et faite tourner votre algorithme sur les paramètres proposés:
+```{r, eval=FALSE}
+#paramètre inconnu de l'algorithme mais pas de vous
+p1=0.6; p2=0.7
+#Taille finale de l'échantillon
+n=5000
+# Enregistrement des données séquentielles
+#Dans la première colonne (bras1), en haut le nombre de 1, en bas le nombre de 0 obtenu au temps t sur le bras 1
+#Dans la seconde colonne colonne (bras2), en haut le nombre de 1, en bas le nombre de 0 obtenu au temps t sur le bras 2
+data_t=matrix(rep(0,4),2,2)
+
+Bayes_UCB=function(){
+  #initilisation
+  x=rbinom(1,1,p1)
+  data_t[,1]=c(x,1-X)
+  x=rbinom(1,1,p2)
+  data_t[,2]=c(x,1-X)
+  for(t=3:n){
+    #à compléter
+  }
+  #à compléter: return()
+}
+```
+
+
+# Cytomegalovirus et transplantation de cellules souches
+
+La greffe de cellules souches hématopoïétiques (GCSH) est la greffe de cellules souches, provenant de la moelle osseuse, du sang périphérique ou du sang du cordon ombilical. Il s'agit d'un acte médical pratiqué le plus souvent chez des patients atteints de certains cancers du sang ou de la moelle osseuse, comme le myélome multiple ou la leucémie. La GCSH allogénique implique deux personnes : le donneur (sain) et le receveur (patient). Les donneurs de CSH allogéniques doivent avoir un type de tissu (HLA) qui correspond au receveur. Dans la GCSH allogénique myéloablative, une chimiothérapie est administrée immédiatement avant une greffe (le régime de conditionnement) dans le but d'éradiquer la maladie du patient avant la perfusion de CSH et de supprimer les réactions immunitaires. La moelle osseuse peut être ablatée (détruite) avec des niveaux de dose qui causent des lésions minimales aux autres tissus. Pour de nombreux patients présentant un risque élevé de mortalité liée à la greffe avec une GCSH allogénique myéloablative, la greffe de cellules souches hématopoïétiques allogéniques conditionnées à intensité réduite s'est avérée efficace. Bien que la GCSH allogénique avec ablation de moëlle osseuse à intensité réduite puisse éviter de nombreuses toxicités organiques associées à l'ablation (chimiothérapie), le risque de développer une maladie du greffon contre l'hôte et une infection, y compris le cytomégalovirus, reste important.
+
+Le cytomégalovirus (CMV) est un virus courant qui peut infecter presque tout le monde. Une fois infecté, le corps conserve le virus à vie. La plupart des gens ne savent pas qu'ils ont le CMV car il cause rarement des problèmes chez les personnes en bonne santé. Mais si la personne est enceinte ou si elle a un système immunitaire affaibli, le CMV est préoccupant. Pour les personnes dont l'immunité est compromise, comme après une GCSH allogénique, l'infection à CMV peut être mortelle. Le génotype KIR du donneur a été impliqué comme facteur contribuant à la réactivation du CMV après une GCSH allogénique myéloablative.
+
+Cette étude examine si le génotype KIR du donneur influence la réactivation du cytomégalovirus (CMV) après une HSCT allogénique avec ablation à intensité réduite.
+
+Cet ensemble de données contient 64 patients consécutifs qui ont subi une greffe de cellules souches hématopoïétiques allogéniques à intensité réduite. Le principal facteur de risque d'intérêt était le nombre de récepteurs tueurs de type immunoglobuline activateurs (aKIR : 1-4 contre 5-6). Un certain nombre de caractéristiques démographiques, de référence et de transplantation ont également été recueillies. Le résultat principal est la présence et le temps de réactivation du cytomégalovirus.
+
+
+Vous disposez de tous les outils du cours pour analyser le dataset suivant (tests classiques, régression logistique, analyse de survie, ...). Le dictionnaire des variables est nommé `Cytomegalovirus Data Dictionary.pdf`.
+```{r, eval=FALSE}
+load("cmv.rdata")
+cytomegalovirus
+```
+## Exemple de nouveau paragraphe
+```{r,eval=FALSE}
+reg=glm(cmv ~ .,data=cytomegalovirus,family=binomial)
+summary(reg)
+```
+La p_valeur du modèle est de 1 et l'alorithme n'a pas convergé:Soit les donnés sont linéairement séparables (tellement bien) qu'un modèle de regression logistique s'ajuste bien au dataframe pour expliquer la target variable 'cmv', soit l'algo n'a pas pu gerer les données manquantes et/ou catégorielles soit ya très peu de données pour que l'algorithme finisse sa descente de gradient
+
+
+## Nouveau paragraphe
+```{r,eval=FALSE}
+#step(glm(cmv~1,data=cytomegalovirus),cmv~.,data=cytomegalovirus,direction = 'forward')
+#na.omit(cytomegalovirus)
+step(glm(cmv~.,data=cytomegalovirus),direction = 'backward')
+```
+
+
+Avec une selection de variables par stepAIC (backward), les covariables retenues pour la regression logistique sont cmv ~ ID + diagnosis.type + time.to.transplant + prior.chemo + 
+    donor.cmv + CD34.dose + CD3.dose + CD8.dose + TBI.dose + 
+    aKIRs + time.to.cmv + agvhd + time.to.agvhd
+(je pense quand même l'algo n'a pas fini sa sélection de variables à cause des valeurs manquantes)
+
+**Présentation:** Chaque nouvelle analyse sera présentée dans un paragraphe incluant les résultats et une explication/interprétation rédigée de ces résultats.
+
+**Attention:** 
+
+* Dans cette partie, une cellule de code dont les résultats ne sont pas lisibles ou ne sont pas analysés (ou mal analysés) ne vaudra pas ou peu de points. Ce qui compte est l'analyse et non la mise en place de procédures potentiellement incomprises. 
+
+* Il n'est pas nécessaire d'être exhaustif pour avoir une bonne note, la qualité prime.
+
+
+* Il y a quelque données manquantes. Quand cela est nécessaire, on pourra utiliser la fonction `na.omit` (ou éventuellement une procédure d'imputation fictive des résultats: moyenne, régréssion, toutes les possibilités pour les variables catégorielles ...). La procédure d'imputation n'est pas  un attendu dans l'évaluation, elle est juste plus satisfaisante d'un point de vue de l'analyse.
+
+* L'échantillon est petit.
+

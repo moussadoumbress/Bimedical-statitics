@@ -1,0 +1,201 @@
+---
+title: 'TP3: survie et estimation non-paramétrique'
+output:
+  html_document:
+    code_folding: show
+    number_sections: yes
+    toc: yes
+    toc_depth: 2
+  pdf_document:
+    toc: yes
+    toc_depth: '2'
+---
+
+**Important:** Ceci est un document R notebook. En cliquant sur knit vous aurez le choix entre un document html, pdf ou word. Le TP doit être rendu sous la forme d'un fichier NOM_prenom_RegLog.html. Il est à remettre dans moodle.
+CTRL+Alt+i permet d'ouvrir une cellule de code compilable.
+
+
+# Fonctions utiles 
+
+Le package `asaur` contient une dizaine de datasets de survie. Nous allons notamment travailler sur les datasets `gastricXelox` et `pharmacoSmoking` dont vous pouvez avoir un aperçu grâce à la fonction `glimpse` (package `tidyverse`)
+
+```{r,eval=FALSE}
+rm(list=ls())
+library(survival)
+library(asaur)
+#library(tidyverse)
+library(ggfortify)
+#glimpse(pharmacoSmoking)
+summary(gastricXelox)
+head(gastricXelox)
+summary(pharmacoSmoking)
+head(pharmacoSmoking)
+
+```
+
+1. Créer une fonction permettant de calculer l'estimateur de Kaplan-Meier pour la fonction de survie. Elle devra pouvoir fonctionner avec les datasets `pharmacoSmoking` et `gastricXelox`. On pourra utiliser les fonctions (order et unique). Effectuer une représantation graphique de vos résultats.
+
+$$\hat{S}(t)=\underset{i:ti<t}{\prod}(1-\dfrac{d_i}{Y_i}), $$
+$d_i$ le nombre de décé au temps $t_i$ et $Y_i$ le nombre de personne à risque juste avant le temps $t_i.$ 
+```{r,eval=FALSE}
+Estim_Klan_Mer=function(t,T,delta){
+  
+  vecT=unique(T[order(T)])
+  vecT=vecT[which(vecT<t)]
+  S=1
+  n=length(T)
+  
+  for (i in vecT){
+    d=sum(delta[which(T==i)])
+    y=sum(T[which(T>=i)])
+   S=S*(1-(d/y))
+  }
+  return(S)
+}
+Klan_Maier=c()
+ttr=pharmacoSmoking$ttr
+ttr=unique(ttr[order(ttr)])
+for (j in 1:length(ttr)){
+  s=Estim_Klan_Mer(ttr[j],pharmacoSmoking$ttr,pharmacoSmoking$relapse)
+Klan_Maier=append(Klan_Maier,s)
+}
+
+plot(ttr,Klan_Maier)
+
+```
+
+2. Créer une fonction permettant de calculer l'estimateur de Greenwood  de la variance. Effectuer une représantation graphique de vos résultats.
+```{r,eval=FALSE}
+Est_Greenwood=function(t,T,delta){
+   vecT=unique(T[order(T)])
+  vecT=vecT[which(vecT<t)]
+  S=0
+  n=length(T)
+  
+  for (i in vecT){
+    d=sum(delta[which(T==i)])
+    y=sum(T[which(T>=i)])
+   S=S+(d/(y*(y-d)))
+  }
+  s=Estim_Klan_Mer(t,T,delta)
+  S=s*s*S
+  return(S)
+}
+```
+```{r,eval=FALSE}
+Gwood=c()
+tw=gastricXelox$timeWeeks
+tw=unique(tw[order(tw)])
+for (j in 1:length(tw)){
+  s=Est_Greenwood(tw[j],gastricXelox$timeWeeks,gastricXelox$delta)
+Gwood=append(Gwood,s)
+}
+
+plot(tw,Gwood)
+```
+
+3. Créer une fonction permettant de calculer les estimateurs de Nelson-Aalen et de Breslow du risque cumulé. Effectuer une représantation graphique de vos résultats.
+```{r,eval=FALSE}
+N_alen=function(t,T,delta){
+   vecT=unique(T[order(T)])
+  vecT=vecT[which(vecT<t)]
+  S=0
+  n=length(T)
+  
+  for (i in vecT){
+    d=sum(delta[which(T==i)])
+    y=sum(T[which(T>=i)])
+   S=S+d/y
+  }
+  
+  
+  return(S)
+}
+```
+```{r,eval=FALSE}
+Breslow=function(t,T,delta){
+   vecT=unique(T[order(T)])
+  vecT=vecT[which(vecT<t)]
+  S=0
+  n=length(T)
+  
+  for (i in vecT){
+    d=sum(delta[which(T==i)])
+    y=sum(T[which(T>=i)])
+   S=S-log(1-d/y)
+  }
+  
+  return(S)
+}
+```
+```{r,eval=FALSE}
+Nalen=c()
+ttr=pharmacoSmoking$ttr
+ttr=unique(ttr[order(ttr)])
+for (j in 1:length(ttr)){
+  s=N_alen(ttr[j],pharmacoSmoking$ttr,pharmacoSmoking$relapse)
+Nalen=append(Nalen,s)
+}
+
+plot(ttr,Nalen)
+```
+```{r,eval=FALSE}
+breslow=c()
+tw=gastricXelox$timeWeeks
+tw=unique(tw[order(tw)])
+for (j in 1:length(tw)){
+  s=Breslow(tw[j],gastricXelox$timeWeeks,gastricXelox$delta)
+breslow=append(breslow,s)
+}
+
+plot(tw,breslow)
+```
+
+4. Créer une fonction renvoyant l'estimateur de la fonction de survie par la méthode actuarielle. Les pas de temps seront identiques et la fonction prendra en paramètre le nombre de coupures $K.$ On comparera les résultats obtenus avec les résultats de l'estimateur de Kaplan-Meier pour différentes valeurs de $K.$
+```{r,eval=FALSE}
+act_method = function(t,T,delta){
+    vecT=unique(T[order(T)])
+  vecT=vecT[which(vecT<t)]
+  S=1
+  n=length(T)
+  
+  for (i in vecT){
+    d=sum(delta[which(T==i)])
+    #y=sum(T[which(T>=i)])
+    a=delta[which(T==i)]
+    c=length(a[a==0])
+    m=(n-d)-c/2
+   S=S*(1-d/n)
+  }
+  return(S)
+}
+
+```
+```{r,eval=FALSE}
+act=c()
+tw=gastricXelox$timeWeeks
+tw=unique(tw[order(tw)])
+for (j in 1:length(tw)){
+  s=act_method(tw[j],gastricXelox$timeWeeks,gastricXelox$delta)
+act=append(act,s)
+}
+
+plot(tw,act)
+```
+
+5. Comparrer les résultats obtenus à la question 1 et 2 avec ceux de la fonction `survfit` (package `survival`). 
+```{r,eval=FALSE}
+km = survfit(Surv(timeWeeks, delta) ~ 1, data = gastricXelox)
+autoplot( km )
+km2 = survfit(Surv(ttr, relapse) ~ 1, data = pharmacoSmoking)
+autoplot( log(km2 ))
+```
+On obtient la même courbe que celle obtenue  aux premières questions
+
+# Analyse du jeu de données `pharmacosmoking`
+ Etudier l'impact  des covariables `levelSmoking`, `grp`, `ageGroup2`, `ageGroup4` et `employment`. L'objet de cette question est l'interprétation et la présentation scientifique des résulats que vous avez obtenus, soit par vos fonctions soit par la fonction `survfit` ( voir fonction `summary` et `attributes` appliquées à l'objet de classe `survfit`). On pensera notamment à utiliser des tests et des intervalles de confiance appliqués à quelques instants choisis de l'espace de temps.
+```{r,eval=FALSE}
+summary(km2)
+attributes(km2)
+```
+
